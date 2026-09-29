@@ -1,0 +1,34 @@
+# Model weights (downloaded separately, see README) — multi-GB GGUF/safetensors
+models/
+whisper_models/
+*.gguf
+*.safetensors
+
+# Third-party installers (downloaded separately, see README)
+prerequisites/
+
+# Built app / PyInstaller output
+PocketMind.exe
+build/PocketMind/
+dist/
+*.spec
+
+# Build environment
+.venv-build-win/
+.venv*/
+
+# Runtime data (created automatically on first launch)
+documents/
+conversations/
+agents.json
+memory.json
+security.json
+onboarding_seen
+
+# Python
+__pycache__/
+*.pyc
+
+# OS cruft
+.DS_Store
+Thumbs.db

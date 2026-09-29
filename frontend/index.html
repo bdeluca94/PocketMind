@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PocketMind</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Lock screen: shown instead of everything else when encryption is on but not yet unlocked this session -->
+  <div id="lockScreen" class="hidden">
+    <div class="lock-box">
+      <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="10.5" width="16" height="10" rx="2"></rect>
+        <path d="M7.5 10.5V7a4.5 4.5 0 0 1 9 0v3.5"></path>
+      </svg>
+      <h2>This drive is locked</h2>
+      <p class="sub">Enter your passphrase to unlock conversations and documents.</p>
+      <input type="password" id="unlockInput" placeholder="Passphrase" autocomplete="current-password">
+      <button id="unlockBtn">Unlock</button>
+      <p id="unlockError" class="error hidden"></p>
+    </div>
+  </div>
+
+  <!-- First-time introduction: a short tour of the interface, shown once
+       until dismissed (Skip or finishing the last step both count), and
+       reopenable any time from the ? button in the header. -->
+  <div id="onboardingModal" class="hidden">
+    <div class="onboarding-box">
+      <button id="onboardingSkip" class="onboarding-skip" title="Skip introduction" aria-label="Skip introduction">✕</button>
+      <div id="onboardingIcon" class="onboarding-icon"></div>
+      <h2 id="onboardingTitle"></h2>
+      <p id="onboardingBody"></p>
+      <div id="onboardingDots" class="onboarding-dots"></div>
+      <div class="onboarding-actions">
+        <button id="onboardingBack" class="link-btn">Back</button>
+        <button id="onboardingNext"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom agents — a modal rather than the sidebar's old inline reveal,
+       since a wide list of agents (or categories, below) got cramped in a
+       ~140px sidebar column. -->
+  <div id="agentPanel" class="hidden">
+    <div class="modal-box modal-box-lg">
+      <div class="modal-header">
+        <h2>Custom Agents</h2>
+        <button id="agentModalClose" class="modal-close" title="Close" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="agentPanelList"></div>
+        <div id="agentNewForm" class="agent-form">
+          <input type="text" id="newAgentName" placeholder="Agent name" maxlength="40">
+          <textarea id="newAgentInstructions" placeholder="Instructions (optional) — how should this agent behave?" rows="2"></textarea>
+          <p class="sub-note">Prioritize categories:</p>
+          <div id="newAgentCategories" class="agent-cat-checks"></div>
+          <button id="addAgentBtn">Create agent</button>
+        </div>
+        <p id="agentError" class="error hidden"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Document categories — same modal treatment as the agents panel above. -->
+  <div id="catPanel" class="hidden">
+    <div class="modal-box modal-box-lg">
+      <div class="modal-header">
+        <h2>Document Categories</h2>
+        <button id="catModalClose" class="modal-close" title="Close" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="catPanelList"></div>
+        <div class="cat-new">
+          <input type="text" id="newCatInput" placeholder="New category" maxlength="40">
+          <button id="addCatBtn">Add</button>
+        </div>
+        <p id="catError" class="error hidden"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Memory — same modal treatment as Agents/Categories above. -->
+  <div id="memoryPanel" class="hidden">
+    <div class="modal-box modal-box-lg">
+      <div class="modal-header">
+        <h2>Memory</h2>
+        <button id="memoryModalClose" class="modal-close" title="Close" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="sub-note">Facts you've asked to be remembered — say "remember that&nbsp;…" in chat, or add one below. Included in every future conversation, in any chat.</p>
+        <div id="memoryPanelList"></div>
+        <div class="cat-new">
+          <input type="text" id="memoryAddInput" placeholder="Add something to remember…" maxlength="500">
+          <button id="memoryAddBtn">Add</button>
+        </div>
+        <p id="memoryError" class="error hidden"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup / restore — same modal treatment as Categories/Agents above. -->
+  <div id="backupPanel" class="hidden">
+    <div class="modal-box modal-box-lg">
+      <div class="modal-header">
+        <h2>Backup &amp; Restore</h2>
+        <button id="backupModalClose" class="modal-close" title="Close" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="backup-section">
+          <h3>Back up</h3>
+          <p class="sub-note">Saves your conversations, custom agents, and document library to a single file you can keep somewhere safe or move to another drive.</p>
+          <button id="downloadBackupBtn">Download backup</button>
+        </div>
+        <div class="backup-section">
+          <h3>Restore</h3>
+          <p class="sub-note">Restoring replaces everything currently on this drive — conversations, agents, and documents — with what's in the backup file. This can't be undone.</p>
+          <input type="file" id="restoreInput" accept=".zip" class="hidden">
+          <button id="chooseRestoreBtn">Choose backup file…</button>
+          <div id="restorePreview" class="hidden">
+            <p id="restoreSummary" class="sub-note"></p>
+            <button id="confirmRestoreBtn" class="danger-btn">Restore this backup</button>
+            <button id="cancelRestoreBtn" class="link-btn">Cancel</button>
+          </div>
+        </div>
+        <p id="backupError" class="error hidden"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat search — same modal treatment as the other sidebar popups above. -->
+  <div id="searchPanel" class="hidden">
+    <div class="modal-box modal-box-lg">
+      <div class="modal-header">
+        <h2>Search Chats</h2>
+        <button id="searchModalClose" class="modal-close" title="Close" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="chatSearchInput" placeholder="Search your conversations…">
+        <div id="chatSearchResults"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="layout">
+    <button id="sidebarEdgeToggle" title="Hide sidebar (Ctrl+B)" aria-label="Toggle sidebar" aria-expanded="true">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 6l-6 6 6 6"></path>
+      </svg>
+    </button>
+    <aside id="sidebar">
+      <button id="newChatBtn">+ New Chat</button>
+      <button id="searchChatsBtn">Search chats</button>
+      <div id="conversationList"></div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">Model</div>
+        <select id="modelSelect"></select>
+        <button id="removeModelBtn" class="danger-btn hidden">Remove this model</button>
+        <div id="modelDropZone" class="drop-zone">
+          <input type="file" id="modelInput" accept=".gguf" class="hidden">
+          <button id="uploadModelBtn">Install your own model</button>
+          <p class="drop-hint">or drag a .gguf file here</p>
+        </div>
+        <p id="modelUploadStatus" class="sub-note hidden"></p>
+        <p id="ejectStatus" class="sub-note"></p>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">
+          Agents
+          <button id="manageAgentsBtn" class="title-action" title="Create or manage custom agents">Manage</button>
+        </div>
+        <p class="sub-note">A custom agent prioritizes specific document categories whenever it's selected in the assistant dropdown above the chat.</p>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">
+          Documents
+          <button id="manageCatsBtn" class="title-action" title="Add, rename, or remove categories">Categories</button>
+        </div>
+        <p class="sub-note">PDFs, Word, Excel, and PowerPoint files the AI can reference while answering. Open Categories to browse, move, or remove them.</p>
+        <div id="pdfDropZone" class="drop-zone">
+          <input type="file" id="pdfInput" accept="application/pdf,.pdf,.docx,.xlsx,.pptx" multiple class="hidden">
+          <button id="uploadPdfBtn">Upload documents</button>
+          <p class="drop-hint">or drag PDF/Word/Excel/PowerPoint files here</p>
+        </div>
+        <div id="pdfQueueList" class="hidden"></div>
+        <div id="pdfProgress" class="hidden">
+          <div class="bar"><div class="fill" id="pdfProgressFill"></div></div>
+          <button id="cancelUploadBtn" class="link-btn">Cancel current</button>
+        </div>
+        <p id="docStatus" class="sub-note"></p>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">
+          Memory
+          <button id="manageMemoryBtn" class="title-action" title="View or add remembered facts">Manage</button>
+        </div>
+        <p class="sub-note">Facts you've asked to be remembered — say "remember that&nbsp;…" in chat, or add one from Manage. Included in every future conversation, in any chat.</p>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">Security</div>
+        <div id="securityControls"></div>
+        <button id="manageBackupBtn">Backup &amp; restore</button>
+      </div>
+    </aside>
+
+  <div id="app">
+    <header>
+      <div class="dot" id="statusDot"></div>
+      <h1>PocketMind <span id="appVersion" class="app-version"></span></h1>
+      <select id="personaSelect"></select>
+      <span id="ejectDot" class="eject-dot" title="Safe to unplug status"></span>
+      <span id="hardwareLabel"></span>
+      <button id="helpBtn" title="How to use program" aria-label="How to use program">?</button>
+    </header>
+
+    <!-- Shown when no model is installed yet -->
+    <section id="setupScreen" class="hidden">
+      <h2>Let's get you set up</h2>
+      <p class="sub">Pick an AI model to install. It downloads once and then works completely offline.</p>
+      <div id="modelChoices"></div>
+      <div id="downloadProgress" class="hidden">
+        <p id="downloadLabel">Downloading…</p>
+        <div class="bar"><div class="fill" id="downloadFill"></div></div>
+        <p id="downloadPct">0%</p>
+      </div>
+      <p id="setupError" class="error hidden"></p>
+    </section>
+
+    <!-- Chat, shown once a model is ready -->
+    <main id="chatWindow" class="hidden"></main>
+    <div id="imageAttachPreview" class="hidden">
+      <img id="imageAttachThumb" alt="Attached image preview">
+      <span id="imageAttachName"></span>
+      <button type="button" id="imageAttachRemove" title="Remove attached image">✕</button>
+    </div>
+    <p id="imageAttachStatus" class="error hidden"></p>
+    <div id="fileAttachPreview" class="hidden">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path>
+        <path d="M14 2v6h6"></path>
+      </svg>
+      <span id="fileAttachName"></span>
+      <button type="button" id="fileAttachRemove" title="Remove attached file">✕</button>
+    </div>
+    <p id="fileAttachStatus" class="error hidden"></p>
+    <p id="textSnippetStatus" class="sub-note hidden"></p>
+    <div id="compactSuggestion" class="hidden">
+      <span>This conversation is getting long — compacting it summarizes what's been said so far, keeping replies quick and nothing important lost.</span>
+      <button type="button" id="compactBtn">Compact conversation</button>
+      <button type="button" id="dismissCompactBtn" class="link-btn">Not now</button>
+    </div>
+    <p id="compactError" class="error hidden"></p>
+    <form id="chatForm" class="hidden">
+      <button type="button" id="attachImageBtn" title="Attach an image">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15l-5-5L5 21"></path>
+          <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+        </svg>
+      </button>
+      <input type="file" id="imageInput" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden">
+      <button type="button" id="autoSpeakBtn" title="Read AI responses aloud automatically" aria-pressed="false">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="4 8 4 16 9 16 14 20 14 4 9 8 4 8"></polygon>
+          <path d="M17.5 8.5a5 5 0 0 1 0 7"></path>
+        </svg>
+      </button>
+      <button type="button" id="micBtn" title="Voice input">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="2" width="6" height="12" rx="3"></rect>
+          <path d="M5 11a7 7 0 0 0 14 0"></path>
+          <path d="M12 18v3"></path>
+        </svg>
+      </button>
+      <textarea id="userInput" placeholder="Ask something…" rows="1"></textarea>
+      <button type="submit" id="sendBtn">Send</button>
+    </form>
+  </div>
+  </div>
+
+  <script src="mermaid.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1408 @@
+/* -----------------------------------------------------------------------
+   PocketMind — visual design tokens
+   Warm, neutral, restrained: a plain-text assistant column (no chat
+   "bubble") is the one deliberate signature move, set against quiet
+   sidebar chrome. No gradients, no shadows-as-decoration, no color
+   used for anything but a genuine state or action.
+   ----------------------------------------------------------------------- */
+:root {
+  --bg: #FAFAF7;
+  --bg-sidebar: #F3F1EA;
+  --bg-raised: #FFFFFF;
+  --bg-hover: #ECE9DF;
+  --bg-code: #F0EDE4;
+
+  --border: #E4E1D6;
+  --border-strong: #D3CFC0;
+
+  --text-primary: #26241F;
+  --text-secondary: #6F6B5E;
+  --text-tertiary: #716E62;
+
+  --accent: #B75736;
+  --accent-hover: #A34B2C;
+  --accent-tint: #F2E2D8;
+
+  --danger: #A8402E;
+  --danger-tint: #F5E3DD;
+  --success: #3E7A56;
+  --warning: #AD7A25;
+
+  --user-bubble: #EFEBE0;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 22px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", "Liberation Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text-primary);
+  height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hidden { display: none !important; }
+
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* -----------------------------------------------------------------------
+   Layout shell
+   ----------------------------------------------------------------------- */
+#layout {
+  display: flex;
+  height: 100vh;
+  position: relative;
+}
+
+#sidebarEdgeToggle {
+  /* Deliberately NOT a child of #sidebar. #sidebar goes opacity:0,
+     overflow:hidden, pointer-events:none, width:0 when collapsed (see
+     #layout.sidebar-collapsed #sidebar below) — an absolutely-positioned
+     child poking out of that box would get clipped by the overflow and
+     made unclickable by the pointer-events, right when it's needed to
+     expand again. Living on #layout instead means none of that touches it;
+     only its own `left` moves, driven by the .sidebar-collapsed class. */
+  position: absolute;
+  top: 72px;
+  left: 260px;
+  transform: translateX(-50%);
+  z-index: 30;
+  width: 22px;
+  height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: left 220ms ease, background 150ms ease, color 150ms ease;
+}
+#sidebarEdgeToggle:hover { background: var(--bg-hover); color: var(--text-primary); }
+#sidebarEdgeToggle svg { transition: transform 220ms ease; }
+#layout.sidebar-collapsed #sidebarEdgeToggle { left: 0; }
+#layout.sidebar-collapsed #sidebarEdgeToggle svg { transform: rotate(180deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  #sidebarEdgeToggle, #sidebarEdgeToggle svg { transition: none; }
+}
+
+#sidebar {
+  width: 260px;
+  min-width: 260px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* A fallback, not the primary scroll mechanism: #conversationList caps
+     its own height and scrolls internally (below), so in normal window
+     sizes the sidebar's total content already fits and this never engages.
+     It stays here so an unusually short window still reaches every section
+     instead of silently clipping content with no way back to it. */
+  overflow-y: auto;
+  /* Animating width (rather than transform) is what makes #app reflow as the
+     sidebar moves, so the chat column widens in step instead of snapping at
+     the end. min-width has to animate too — it's what pins the width open. */
+  transition: width 220ms ease, min-width 220ms ease, padding 220ms ease,
+              opacity 160ms ease;
+}
+
+#layout.sidebar-collapsed #sidebar {
+  width: 0;
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-right-color: transparent;
+  opacity: 0;
+  overflow: hidden;
+  /* Without this, links and inputs in the zero-width sidebar are still
+     tabbable — the sidebar would be invisible but keyboard-reachable. */
+  pointer-events: none;
+}
+
+/* A collapsed sidebar's contents shouldn't reflow into a one-word-per-line
+   column on the way out; freezing the content width keeps the animation
+   clean. */
+#layout.sidebar-collapsed #sidebar > * {
+  min-width: 232px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #sidebar { transition: none; }
+}
+
+#sidebar button { width: 100%; }
+/* Small inline-style buttons inside the sidebar (the queue's remove ✕,
+   Cancel/Clear links, section-title links like "Categories"/"Manage")
+   should size to their content, not stretch full width like the sidebar's
+   primary actions — #sidebar's ID specificity otherwise beats these
+   classes and forces width:100% on them too. The category/document row
+   controls (.cat-del, .doc-item .move/.del, etc.) don't need this: they
+   only ever render inside the Categories modal now, never under #sidebar. */
+#sidebar .link-btn,
+#sidebar .queue-remove,
+#sidebar .title-action {
+  width: auto;
+}
+
+#newChatBtn {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-weight: 500;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  justify-content: flex-start;
+}
+#newChatBtn:hover { background: var(--bg-hover); }
+
+#conversationList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+  /* Capped so a long chat history scrolls inside this list rather than
+     growing the whole sidebar — the Model/Documents/Security/Drive sections
+     below stay put instead of getting pushed further down the page. */
+  max-height: 200px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.conv-item {
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.conv-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.conv-item .del { color: var(--text-tertiary); font-size: 11px; }
+.conv-item .del:hover { color: var(--danger); }
+.conv-item .export { color: var(--text-tertiary); font-size: 11px; margin-right: 6px; }
+.conv-item .export:hover { color: var(--text-primary); }
+
+.sidebar-section {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sidebar-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
+.doc-item {
+  font-size: 12.5px;
+  color: var(--text-primary);
+  padding: 7px 9px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.doc-item span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* .del and .move are real <button> elements (for native keyboard focus/
+   activation — see the comment in buildDocRow), which means they'd
+   otherwise inherit the generic button{} rule's full boxed appearance
+   (background, border, 36px height, etc.). Reset all of that back to a
+   plain inline icon, matching how they looked and behaved as spans. */
+.doc-item .del,
+.doc-item .move {
+  background: none;
+  border: none;
+  padding: 0;
+  height: auto;
+  font-size: inherit;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.doc-item .del:hover,
+.doc-item .move:hover {
+  background: none;
+}
+.doc-item .del:hover { color: var(--danger); }
+.doc-item .move:hover { color: var(--accent); }
+.doc-item .move { display: inline-flex; }
+
+/* --- Category groups, now living inside the Categories modal instead of
+   a cramped sidebar column — each group is its header (rename/delete for a
+   real category, plain label for Uncategorized, plus a document count)
+   followed by the documents filed under it. --- */
+.cat-group-wrap { margin-bottom: 2px; }
+.cat-group-wrap:last-child { margin-bottom: 0; }
+.doc-row { display: flex; flex-direction: column; gap: 4px; padding-left: 15px; margin-top: 4px; }
+.doc-item .doc-name { cursor: grab; }
+.doc-item .doc-name:hover { color: var(--accent); }
+.doc-item .doc-name:active { cursor: grabbing; }
+/* Dimmed rather than hidden while its own drag is in progress — the row
+   stays in place (dropping back where it started is a valid, if pointless,
+   no-op) but reads clearly as "this one's in motion." */
+.doc-item.dragging { opacity: 0.4; }
+
+/* Unlike the old sidebar list, every category always shows here, empty or
+   not — this modal is the only place empty categories are visible at all,
+   and hiding them would make an empty one impossible to find and delete. */
+/* The group actively being dragged over — deliberately loud, since missing
+   this is the difference between filing a document and not. */
+#catPanelList.dnd-active .cat-group.drop-target {
+  background: var(--accent-tint);
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.cat-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 5px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  /* Deliberately NOT uppercase/bold/letter-spaced like .sidebar-title —
+     this is what actually caused confusion about what "Documents" was for
+     back when both lived in the sidebar: at matching size and weight, a
+     section title and the group headers living inside that section read as
+     the same visual tier. Lighter weight and normal case here settles the
+     hierarchy at a glance, and reads real category names (which can be
+     user-typed, mixed-case words) more naturally than forcing them into
+     caps. */
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-sm);
+}
+.cat-group:hover { color: var(--text-primary); background: var(--bg-hover); }
+.cat-group:first-child { margin-top: 0; }
+.cat-group .cat-caret { font-size: 10px; color: var(--text-tertiary); width: 10px; flex-shrink: 0; }
+.cat-group .cat-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-group .cat-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: var(--bg-hover);
+  border-radius: var(--radius-pill);
+  padding: 1px 7px;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+.cat-group:hover .cat-count { background: var(--bg-raised); }
+
+.doc-actions { padding: 0 0 2px 4px; }
+.doc-cat-select {
+  width: 100%;
+  font-size: 11.5px;
+  padding: 4px 6px;
+  color: var(--text-primary);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* --- Categories management panel --- */
+.sidebar-title { display: flex; align-items: baseline; justify-content: space-between; }
+.title-action {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.title-action:hover { color: var(--accent); background: none; }
+
+/* --- Agents/Categories modals — centered overlay, same pattern as
+   #onboardingModal, chosen once either list got long enough that a ~140px
+   sidebar column made rows hard to read or click precisely. --- */
+#catPanel,
+#agentPanel,
+#backupPanel,
+#searchPanel {
+  position: fixed;
+  inset: 0;
+  background: rgba(38, 36, 31, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 110;
+  padding: 20px;
+}
+.modal-box-lg {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  max-height: min(680px, calc(100vh - 40px));
+  background: var(--bg-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.modal-header h2 { font-size: 16px; margin: 0; color: var(--text-primary); }
+.modal-close {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.modal-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+.modal-body {
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cat-rename {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 4px 6px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  /* Matches .cat-group .cat-name's overflow handling below it in the doc
+     list — this is a plain text <input>, not a <span>, so text-overflow
+     needs white-space:nowrap to have any effect, but the intent is the
+     same: a long category name should truncate with an ellipsis rather
+     than silently overflow or (in a cramped real layout) end up looking
+     like there's no text there at all. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-rename:hover { border-color: var(--border-strong); }
+.cat-rename:focus { outline: none; background: var(--bg); border-color: var(--border-strong); }
+.cat-del {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.cat-del:hover { color: var(--danger); background: none; }
+.cat-new { display: flex; gap: 5px; margin-top: 2px; }
+.cat-new input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 5px 6px;
+  color: var(--text-primary);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.cat-new button {
+  font-size: 11.5px;
+  padding: 5px 9px;
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#catError { font-size: 11px; margin: 2px 0 0; color: var(--danger); }
+#catError.cat-success { color: var(--success); }
+
+/* --- Backup/restore panel --- */
+.backup-section { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.backup-section:last-of-type { padding-bottom: 0; margin-bottom: 0; border-bottom: none; }
+.backup-section h3 { font-size: 13px; margin: 0 0 4px; color: var(--text-primary); }
+.backup-section .sub-note { margin: 0 0 10px; }
+#restorePreview { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+#restorePreview .sub-note { margin: 0; }
+#backupError { font-size: 11px; margin: 12px 0 0; color: var(--danger); }
+
+/* --- Chat search panel --- */
+#chatSearchInput {
+  width: 100%;
+  font-size: 13px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+}
+#chatSearchInput:focus { outline: none; border-color: var(--accent); }
+#chatSearchResults {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+}
+.search-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  height: auto;
+  cursor: pointer;
+}
+.search-result:hover { background: var(--bg-hover); }
+.search-result-title { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.search-result-snippet {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* --- Custom agents panel — deliberately reuses .cat-rename/.cat-del from
+   the categories panel above for the name-edit row, so the two management
+   panels look and behave like siblings rather than two different widgets.
+   The panel's own overlay/box shell is defined above, alongside #catPanel's. */
+.agent-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.agent-row:last-of-type { border-bottom: none; padding-bottom: 0; }
+.agent-row-header { display: flex; align-items: center; gap: 5px; }
+#agentNewForm {
+  /* A clear divider between "existing agents" and "create a new one" —
+     the panel's own 8px gap alone read as too subtle once there were a
+     few agent rows above it, especially since the last row deliberately
+     drops its own border-bottom (see .agent-row:last-of-type above) to
+     avoid a doubled-up line right before this one. */
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 12px;
+}
+.agent-form { display: flex; flex-direction: column; gap: 6px; }
+.agent-form input,
+.agent-form textarea {
+  width: 100%;
+  font-size: 12px;
+  padding: 5px 6px;
+  color: var(--text-primary);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  resize: vertical;
+}
+.agent-form button {
+  align-self: flex-start;
+  font-size: 11.5px;
+  padding: 5px 9px;
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.agent-cat-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 2px 0;
+}
+.agent-cat-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.agent-cat-check input { width: auto; margin: 0; cursor: pointer; }
+#agentError { font-size: 11px; margin: 0; }
+
+/* --- "Searched your X documents first" note under a routed answer --- */
+.routing-note {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -4px 0 14px;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+.routing-note .link-btn { font-size: 11.5px; padding: 0; color: var(--text-secondary); }
+.routing-note .link-btn:hover { color: var(--accent); }
+/* Under a right-aligned user bubble (a file-attach note) rather than a
+   left-aligned assistant one — the note's own alignment has to follow. */
+.routing-note.note-right { align-self: flex-end; justify-content: flex-end; text-align: right; }
+.routing-note.note-danger { color: var(--danger); }
+
+#uploadPdfBtn {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+}
+#uploadPdfBtn:hover { background: var(--bg-hover); }
+
+.sub-note { font-size: 11.5px; color: var(--text-tertiary); margin: 0; line-height: 1.4; }
+
+/* -----------------------------------------------------------------------
+   Main chat pane
+   ----------------------------------------------------------------------- */
+#app {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+  background: var(--bg);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+}
+header h1 {
+  font-size: 14.5px;
+  font-weight: 600;
+  margin: 0;
+  flex: 1;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+/* A field tester's bug report is otherwise untraceable to a build — see
+   backend/version.py. Deliberately subtle: useful to glance at or read off
+   in a report, not something that needs to compete with the title for
+   attention on every screen. */
+.app-version { font-size: 10.5px; font-weight: 400; color: var(--text-tertiary); letter-spacing: 0; }
+#hardwareLabel { font-size: 12px; color: var(--text-tertiary); }
+#personaSelect {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--danger);
+  flex-shrink: 0;
+}
+.dot.ready { background: var(--success); }
+
+main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.msg {
+  line-height: 1.55;
+  font-size: 14.5px;
+  border-radius: var(--radius-md);
+  transition: background-color 1.8s ease;
+}
+/* Jumped to from a search result — a brief highlight so it's obvious which
+   message actually matched, not just which conversation. Transitions back
+   out on its own; the class itself is removed a moment later in JS so a
+   second jump to the same message can flash again. */
+.msg-highlight { background-color: var(--accent-tint); }
+.msg.user {
+  align-self: flex-end;
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  border-bottom-right-radius: 4px;
+  background: var(--user-bubble);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+.msg-image {
+  display: block;
+  max-width: 240px;
+  max-height: 240px;
+  border-radius: var(--radius-md);
+  margin-top: 8px;
+}
+.msg.assistant {
+  align-self: flex-start;
+  max-width: 100%;
+  width: 100%;
+  color: var(--text-primary);
+}
+.msg.assistant.thinking { min-height: 20px; display: flex; align-items: center; }
+.thinking-dots { display: inline-flex; gap: 4px; }
+.thinking-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  animation: thinking-bounce 1.2s ease-in-out infinite;
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
+.thinking-timer {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+@keyframes thinking-bounce {
+  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+.msg.assistant p { margin: 0 0 10px; }
+.msg.assistant p:last-child { margin-bottom: 0; }
+.msg.assistant h3, .msg.assistant h4, .msg.assistant h5, .msg.assistant h6 {
+  margin: 14px 0 6px;
+  font-size: 1em;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.msg.assistant h3:first-child, .msg.assistant h4:first-child { margin-top: 0; }
+.msg.assistant ul, .msg.assistant ol { margin: 4px 0 10px; padding-left: 22px; }
+.msg.assistant li { margin: 3px 0; }
+.msg.assistant code {
+  background: var(--bg-code);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--text-primary);
+}
+.msg.assistant pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.msg.assistant pre code { background: none; padding: 0; border: none; }
+.msg.assistant a { color: var(--accent); }
+.msg-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.speak-btn {
+  display: flex;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-tertiary);
+  align-items: center;
+  justify-content: center;
+}
+.speak-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
+.speak-btn.speaking {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.msg.system {
+  align-self: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* -----------------------------------------------------------------------
+   Composer
+   ----------------------------------------------------------------------- */
+#chatForm {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 760px;
+  width: calc(100% - 48px);
+  margin: 0 auto 22px;
+  padding: 8px 8px 8px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+textarea {
+  flex: 1;
+  resize: none;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  padding: 8px 4px;
+  font-size: 14.5px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+textarea:focus { outline: none; }
+textarea::placeholder { color: var(--text-tertiary); }
+
+button {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  padding: 0 16px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 500;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+button:hover { background: var(--bg-hover); }
+button:disabled { opacity: 0.5; cursor: default; background: var(--bg-raised); }
+
+#sendBtn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FFFFFF;
+  border-radius: var(--radius-pill);
+  padding: 0 20px;
+}
+#sendBtn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+#sendBtn:disabled { background: var(--border-strong); border-color: var(--border-strong); color: var(--text-secondary); opacity: 1; }
+#sendBtn.stop-btn { background: var(--danger); border-color: var(--danger); }
+#sendBtn.stop-btn:hover { background: var(--danger); opacity: 0.85; }
+
+#micBtn {
+  background: transparent;
+  border: none;
+  padding: 0 10px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 16px;
+  color: var(--text-secondary);
+}
+#micBtn:hover { background: var(--bg-hover); }
+#micBtn.recording {
+  background: var(--danger);
+  color: #FFFFFF;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+#attachImageBtn {
+  background: transparent;
+  border: none;
+  padding: 0 10px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--text-secondary);
+}
+#attachImageBtn:hover { background: var(--bg-hover); }
+#attachImageBtn.drag-over { background: var(--accent-tint); color: var(--accent); }
+
+#autoSpeakBtn {
+  background: transparent;
+  border: none;
+  padding: 0 10px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--text-secondary);
+}
+#autoSpeakBtn:hover { background: var(--bg-hover); }
+#autoSpeakBtn.active { background: var(--accent-tint); color: var(--accent); }
+
+#imageAttachPreview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 760px;
+  width: calc(100% - 48px);
+  margin: 0 auto 8px;
+  padding: 6px 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+#imageAttachThumb {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+#imageAttachName {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#imageAttachRemove {
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  height: auto;
+  color: var(--text-tertiary);
+}
+#imageAttachRemove:hover { color: var(--danger); background: none; }
+
+#fileAttachPreview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 760px;
+  width: calc(100% - 48px);
+  margin: 0 auto 8px;
+  padding: 6px 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+}
+#fileAttachName {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#fileAttachRemove {
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  height: auto;
+  color: var(--text-tertiary);
+}
+#fileAttachRemove:hover { color: var(--danger); background: none; }
+
+#imageAttachStatus, #textSnippetStatus, #fileAttachStatus, #compactError {
+  max-width: 760px;
+  width: calc(100% - 48px);
+  margin: 0 auto 8px;
+  text-align: center;
+}
+
+#compactSuggestion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 760px;
+  width: calc(100% - 48px);
+  margin: 0 auto 8px;
+  padding: 8px 12px;
+  background: var(--accent-tint);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+#compactSuggestion span { flex: 1; }
+#compactBtn {
+  flex-shrink: 0;
+  width: auto;
+  font-size: 12px;
+  padding: 6px 12px;
+  height: auto;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FFFFFF;
+}
+#compactBtn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+#compactBtn:disabled { background: var(--border-strong); border-color: var(--border-strong); color: var(--text-secondary); opacity: 1; }
+#dismissCompactBtn { flex-shrink: 0; }
+
+.code-block-wrap { position: relative; margin: 8px 0; }
+.code-block-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+.code-block-wrap pre { margin: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+.code-download-btn {
+  background: none;
+  border: none;
+  padding: 1px 6px;
+  height: auto;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.code-download-btn:hover { color: var(--accent); background: none; }
+
+.mermaid {
+  margin: 8px 0;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid svg { max-width: 100%; }
+
+/* -----------------------------------------------------------------------
+   Setup / model picker screen
+   ----------------------------------------------------------------------- */
+#setupScreen {
+  padding: 40px 32px;
+  overflow-y: auto;
+  max-width: 640px;
+  margin: 0 auto;
+  width: 100%;
+}
+#setupScreen h2 { margin: 0 0 6px; font-size: 20px; font-weight: 600; color: var(--text-primary); }
+#setupScreen .sub { color: var(--text-secondary); margin: 0 0 24px; font-size: 14px; line-height: 1.5; }
+
+.model-card {
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.model-card.recommended { border-color: var(--accent); }
+.model-card .info { flex: 1; min-width: 0; }
+.model-card .info .title { font-weight: 600; font-size: 15px; margin-bottom: 4px; color: var(--text-primary); }
+.model-card .info .blurb { font-size: 13px; color: var(--text-secondary); line-height: 1.45; }
+.model-card .info .size { font-size: 12px; color: var(--text-tertiary); margin-top: 8px; }
+.model-card button {
+  white-space: nowrap;
+  padding: 9px 18px;
+  height: auto;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FFFFFF;
+}
+.model-card button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+#downloadProgress { margin-top: 20px; }
+#downloadLabel { font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+.bar {
+  height: 8px;
+  border-radius: 5px;
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.bar .fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+#downloadPct { font-size: 12px; color: var(--text-tertiary); margin-top: 6px; }
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  padding: 4px 0;
+  margin-top: 4px;
+  height: auto;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.link-btn:hover { color: var(--danger); background: none; }
+.link-btn:disabled { color: var(--text-tertiary); opacity: 0.6; cursor: default; text-decoration: none; }
+
+.drop-zone {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  text-align: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+.drop-zone.uploading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.drop-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+#pdfQueueList {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.queue-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 2px;
+}
+.queue-item .queue-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.queue-item .queue-status { flex-shrink: 0; font-size: 11px; font-weight: 500; }
+.queue-item.pending .queue-status { color: var(--text-tertiary); }
+.queue-item.active .queue-status { color: var(--accent); }
+.queue-item.done .queue-status { color: var(--success); }
+.queue-item.error .queue-status { color: var(--danger); }
+.queue-item.cancelled .queue-status { color: var(--text-tertiary); }
+.queue-item.duplicate .queue-status { color: var(--warning); }
+.queue-item .queue-remove {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  height: auto;
+}
+.queue-item .queue-remove:hover { color: var(--danger); background: none; }
+#pdfQueueFooter { margin-top: 2px; }
+#conversationListFooter { margin-top: 2px; }
+
+#memoryPanelList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+}
+.memory-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  padding: 5px 2px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  border-bottom: 1px solid var(--border);
+}
+.memory-item .memory-remove {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  height: auto;
+  flex-shrink: 0;
+}
+.memory-item .memory-remove:hover { color: var(--danger); background: none; }
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 14px;
+}
+
+.eject-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--text-tertiary);
+  display: inline-block;
+}
+.eject-dot.safe { background: var(--success); }
+.eject-dot.unsafe { background: var(--warning); }
+
+#installSection button {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  font-size: 12.5px;
+  padding: 8px 10px;
+  height: auto;
+}
+#installProgress .bar { margin-top: 6px; }
+
+/* -----------------------------------------------------------------------
+   Lock screen
+   ----------------------------------------------------------------------- */
+#lockScreen {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.lock-box {
+  max-width: 320px;
+  padding: 32px;
+  text-align: center;
+}
+.lock-box .lock-icon {
+  display: block;
+  width: 28px;
+  height: 28px;
+  margin: 0 auto 14px;
+  color: var(--text-secondary);
+}
+.lock-box h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.lock-box .sub { color: var(--text-secondary); font-size: 13.5px; margin: 0; line-height: 1.5; }
+.lock-box input {
+  width: 100%;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  padding: 10px 12px;
+  font-size: 14px;
+  margin: 16px 0 10px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.lock-box button {
+  width: 100%;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FFFFFF;
+  padding: 10px;
+  height: auto;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+}
+.lock-box button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+/* -----------------------------------------------------------------------
+   Onboarding tour
+   ----------------------------------------------------------------------- */
+#helpBtn {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  padding: 0;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: none;
+  border: 1px solid var(--border-strong);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#helpBtn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-tint); }
+
+#onboardingModal {
+  position: fixed;
+  inset: 0;
+  /* Dimmed rather than opaque like #lockScreen — this is a friendly tour
+     the person can see past, not a hard gate blocking access to the app. */
+  background: rgba(38, 36, 31, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 110;
+  padding: 20px;
+}
+.onboarding-box {
+  position: relative;
+  max-width: 380px;
+  width: 100%;
+  background: var(--bg-raised);
+  border-radius: var(--radius-lg);
+  padding: 32px 28px 24px;
+  text-align: center;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  box-sizing: border-box;
+}
+.onboarding-skip {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 50%;
+}
+.onboarding-skip:hover { color: var(--text-primary); background: var(--bg-hover); }
+.onboarding-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 18px;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.onboarding-icon svg { width: 100%; height: 100%; }
+.onboarding-box h2 { font-size: 17.5px; margin: 0 0 10px; color: var(--text-primary); }
+.onboarding-box p { font-size: 14px; line-height: 1.55; color: var(--text-secondary); margin: 0 0 20px; }
+.onboarding-dots { display: flex; justify-content: center; gap: 6px; margin-bottom: 20px; }
+.onboarding-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+.onboarding-dots span.active { background: var(--accent); }
+.onboarding-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+#onboardingBack {
+  margin-top: 0;
+  padding: 4px 0;
+}
+/* visibility, not the global .hidden (display:none): hiding Back on the
+   first step should still leave its space reserved, so Next doesn't jump
+   sideways to recenter itself between steps. */
+#onboardingBack.step-hidden { visibility: hidden; }
+#onboardingNext {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FFFFFF;
+  padding: 8px 22px;
+  height: auto;
+  border-radius: var(--radius-md);
+}
+#onboardingNext:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+/* -----------------------------------------------------------------------
+   Model switcher
+   ----------------------------------------------------------------------- */
+#modelSelect {
+  width: 100%;
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 7px 8px;
+  font-size: 12.5px;
+  margin-bottom: 8px;
+  font-family: inherit;
+}
+#removeModelBtn {
+  width: 100%;
+  font-size: 12.5px;
+  padding: 8px 10px;
+  height: auto;
+  margin-bottom: 8px;
+}
+/* -----------------------------------------------------------------------
+   Security controls
+   ----------------------------------------------------------------------- */
+#securityControls { display: flex; flex-direction: column; gap: 8px; }
+#securityControls button {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  font-size: 12.5px;
+  padding: 8px 10px;
+  height: auto;
+}
+#securityControls input {
+  width: 100%;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  font-size: 13px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.security-form { display: flex; flex-direction: column; gap: 6px; }
+
+.danger-btn { border-color: var(--danger) !important; color: var(--danger); }
+.danger-btn:hover { background: var(--danger-tint) !important; }

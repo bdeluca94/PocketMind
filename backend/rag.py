@@ -139,7 +139,7 @@ def _connect():
     )
     conn.execute(
         """CREATE TABLE IF NOT EXISTS chunks (
-            id TEXT PRIMARY KEY, doc_id TEXT, text TEXT, vector TEXT
+            id TEXT PRIMARY KEY, doc_id TEXT, text TEXT, vector BLOB
         )"""
     )
     conn.execute(
@@ -148,7 +148,7 @@ def _connect():
             name TEXT NOT NULL COLLATE NOCASE UNIQUE,
             created_at TEXT,
             sort_order INTEGER DEFAULT 0,
-            name_vector TEXT
+            name_vector BLOB
         )"""
     )
     conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
@@ -170,7 +170,7 @@ def _migrate_schema(conn) -> None:
     if "category_id" not in existing:
         conn.execute("ALTER TABLE documents ADD COLUMN category_id TEXT")
     if "centroid" not in existing:
-        conn.execute("ALTER TABLE documents ADD COLUMN centroid TEXT")
+        conn.execute("ALTER TABLE documents ADD COLUMN centroid BLOB")
     if "content_hash" not in existing:
         conn.execute("ALTER TABLE documents ADD COLUMN content_hash TEXT")
     if "conversation_id" not in existing:
@@ -234,6 +234,16 @@ def _control_char_ratio(text: str) -> float:
 GARBAGE_TEXT_RATIO = 0.15
 
 
+def _dump_vector(vec: list[float]) -> bytes:
+    """Serializes a vector as packed float32 bytes rather than a JSON array of
+    decimal text — ~5x smaller on disk and, far more importantly, orders of
+    magnitude cheaper to parse back: np.frombuffer is a zero-copy reinterpret
+    of the bytes, while json.loads has to tokenize and parse a few thousand
+    ASCII digits per float. See _load_vector's docstring for the retrieval-time
+    cost this avoids on a large library."""
+    return np.asarray(vec, dtype=np.float32).tobytes()
+
+
 def _load_vector(raw) -> list[float] | None:
     """Parses a stored vector, returning None instead of raising if the row is
     unusable.
@@ -244,9 +254,25 @@ def _load_vector(raw) -> list[float] | None:
     unusable until the file is hand-edited. One truncated write (a yanked USB
     drive mid-commit is the realistic cause here) shouldn't be able to do
     that. Skipping the bad row costs a little retrieval quality; refusing to
-    open the database costs everything."""
+    open the database costs everything.
+
+    Handles both storage formats transparently, distinguished by Python type
+    rather than by inspecting the bytes: sqlite3 hands back `bytes` for a row
+    written as packed float32 (the current format, via _dump_vector) and
+    `str` for one still holding the original JSON-text encoding (pre-migration
+    rows, or a database that was never run through the migration script) —
+    SQLite preserves BLOB storage class even in a column with TEXT affinity,
+    so both can coexist in the same column with no ambiguity. This means a
+    not-yet-migrated database still works correctly (just without the speed
+    win) instead of silently losing those rows."""
     if not raw:
         return None
+    if isinstance(raw, (bytes, memoryview)):
+        try:
+            arr = np.frombuffer(raw, dtype=np.float32)
+        except ValueError:
+            return None
+        return arr.tolist() if arr.size else None
     try:
         v = json.loads(raw)
     except (ValueError, TypeError):
@@ -401,7 +427,7 @@ def _backfill_centroids(conn) -> None:
         # A document with no chunks (or unparseable ones) gets an empty
         # marker rather than staying NULL — otherwise it would be retried on
         # every single connection forever.
-        conn.execute("UPDATE documents SET centroid = ? WHERE id = ?", (json.dumps(centroid), doc_id))
+        conn.execute("UPDATE documents SET centroid = ? WHERE id = ?", (_dump_vector(centroid), doc_id))
 
 
 def _mean_vector(vectors: list[list[float]]) -> list[float]:
@@ -851,7 +877,7 @@ def ingest_document(file_bytes: bytes, filename: str) -> dict:
                     vectors.append(vector)
                     conn.execute(
                         "INSERT INTO chunks (id, doc_id, text, vector) VALUES (?, ?, ?, ?)",
-                        (uuid.uuid4().hex[:12], doc_id, chunk, json.dumps(vector)),
+                        (uuid.uuid4().hex[:12], doc_id, chunk, _dump_vector(vector)),
                     )
                     ingest_progress["chunks_done"] += 1
 
@@ -860,7 +886,7 @@ def ingest_document(file_bytes: bytes, filename: str) -> dict:
                 # loaded, so it costs one array mean rather than a second pass.
                 centroid = _mean_vector(vectors)
                 conn.execute("UPDATE documents SET centroid = ? WHERE id = ?",
-                             (json.dumps(centroid), doc_id))
+                             (_dump_vector(centroid), doc_id))
 
                 if centroid:
                     cat_vecs = _category_vectors(conn, want_dim=len(centroid))
@@ -968,7 +994,7 @@ def ingest_text_snippet(text: str, filename: str, conversation_id: str) -> dict:
                 vector = _embed(chunk, task="search_document")
                 conn.execute(
                     "INSERT INTO chunks (id, doc_id, text, vector) VALUES (?, ?, ?, ?)",
-                    (uuid.uuid4().hex[:12], doc_id, chunk, json.dumps(vector)),
+                    (uuid.uuid4().hex[:12], doc_id, chunk, _dump_vector(vector)),
                 )
             conn.commit()
             invalidate_vector_cache()
@@ -1170,7 +1196,7 @@ def _category_vectors(conn, want_dim: int | None = None) -> dict[str, list[float
                 vec = _embed(f"Documents about {name}", task="search_document")
             except Exception:
                 continue  # embedder unavailable — skip this category, don't fail the query
-            conn.execute("UPDATE categories SET name_vector = ? WHERE id = ?", (json.dumps(vec), cat_id))
+            conn.execute("UPDATE categories SET name_vector = ? WHERE id = ?", (_dump_vector(vec), cat_id))
             conn.commit()
         if vec and (want_dim is None or len(vec) == want_dim):
             result[cat_id] = vec

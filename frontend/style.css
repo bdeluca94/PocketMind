@@ -352,7 +352,8 @@ body {
 #catPanel,
 #agentPanel,
 #backupPanel,
-#searchPanel {
+#searchPanel,
+#memoryPanel {
   position: fixed;
   inset: 0;
   background: rgba(38, 36, 31, 0.45);

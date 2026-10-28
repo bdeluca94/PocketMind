@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import datetime
+import gc
 import json
 import logging
 import os
@@ -541,6 +542,24 @@ def get_llm():
                     "the models folder and reinstalling it."
                 ) from e
         return _llm
+
+
+def _release_chat_model() -> None:
+    """Drops the loaded chat model so its GPU/RAM goes back to the OS — used
+    right before image generation (see imagegen.generate_image's
+    before_generate). The next chat message reloads it through get_llm(),
+    exactly as after select_model()."""
+    global _llm, _model_path
+    with _llm_lock:
+        llm, _llm = _llm, None
+        _model_path = None
+    if llm is not None:
+        try:
+            llm.close()
+        except Exception:
+            pass
+        del llm
+        gc.collect()
 
 
 def friendly_model_error(e: Exception) -> str:
@@ -1084,7 +1103,7 @@ async def api_generate_image(request: Request):
         except (ValueError, TypeError):
             return JSONResponse({"error": "That image couldn't be read."}, status_code=400)
     strength = body.get("strength")
-    kwargs = {"init_image": init_image_bytes}
+    kwargs = {"init_image": init_image_bytes, "before_generate": _release_chat_model}
     if strength is not None:
         kwargs["strength"] = strength
 

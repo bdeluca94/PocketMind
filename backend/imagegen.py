@@ -18,19 +18,30 @@ support is new enough to still be getting foundational fixes (multiple
 open bugs against this exact model at the time), unlike FLUX, which has
 been supported since near the project's start.
 
-No GPU offload here yet: this ships CPU-only. The chat model's own CUDA
-build (llama-cpp-python, bundled with the ~636MB cuBLAS/cuBLASLt runtime
-it needs) is a separate dependency from stable-diffusion-cpp-python here —
-building this one with CUDA support too wasn't part of that work. Revisit
-if this ever gets its own CUDA-enabled build the way the chat model has.
+GPU: when the official prebuilt Vulkan build of stable-diffusion.cpp's
+sd-cli is present in an `sd/` folder next to the app (see _sd_cli_path),
+generation runs in that separate process instead of in-process — measured on
+the dev machine at ~100s for a 512x512 FLUX image (RTX 4060, 8GB, weights
+streamed from RAM) versus ~5 minutes at the same size on CPU through
+stable-diffusion-cpp-python, which has no GPU backend in this app's build
+(it's compiled from source without CUDA — see build_windows.bat). Vulkan
+rather than CUDA so the same binary works on NVIDIA, AMD, and Intel GPUs
+without shipping a CUDA runtime, which matters for a drive that moves between
+PCs. A separate process also hands all its RAM/VRAM back the moment it exits,
+so there's no resident image model to idle-unload on this path. Where no
+sd-cli binary exists (e.g. macOS/Linux builds), generation falls back to the
+in-process CPU library below.
 """
 
 from __future__ import annotations
 
 import io
+import logging
 import os
 import random
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -56,8 +67,21 @@ _sd_idle_seconds = 300  # matches rag.py's embedder idle-unload window
 _unload_watcher_started = False
 
 
+SD_DIR = ROOT / "sd"
+
+# Generous on purpose: this only exists to stop a wedged process from holding
+# the generation lock (and the GPU) forever, not to cap a legitimately slow
+# machine — CPU-only fallback on a weak laptop can take a long time.
+CLI_TIMEOUT_SECONDS = 20 * 60
+
+
 def image_model_installed() -> bool:
     return DIFFUSION_MODEL.exists() and CLIP_L.exists() and T5XXL.exists() and VAE.exists()
+
+
+def _sd_cli_path() -> Path | None:
+    exe = SD_DIR / ("sd-cli.exe" if sys.platform == "win32" else "sd-cli")
+    return exe if exe.exists() else None
 
 
 def get_sd():
@@ -113,15 +137,73 @@ def _idle_watcher():
                 _sd = None
 
 
-MAX_EDIT_DIMENSION = 1024  # keeps an edit's runtime in the same ballpark as a plain generation
+# 512, not 1024: FLUX's cost grows steeply with pixel count, and a plain
+# 1024x1024 request ran 30+ minutes on CPU without finishing. 512x512 is the
+# size every earlier test of this feature actually used.
+DEFAULT_SIZE = 512
+MAX_EDIT_DIMENSION = 512  # keeps an edit's runtime in the same ballpark as a plain generation
+
+
+def _generate_with_cli(cli: Path, prompt: str, seed: int, width: int, height: int,
+                       source=None, strength: float = 0.9) -> bytes:
+    """Runs one generation in the bundled sd-cli process (see module
+    docstring). Text encoders stay on CPU (matches the in-process path's
+    keep_clip_on_cpu, and T5's ~5GB compute buffer wouldn't fit in 8GB of
+    VRAM alongside everything else), and the diffusion weights are held in RAM
+    and streamed to the GPU as needed (--offload-to-cpu) so an 8GB card — or
+    one already partly used by the chat model — doesn't run out of VRAM."""
+    with tempfile.TemporaryDirectory(prefix="pocketmind_sd_") as tmp:
+        out_path = Path(tmp) / "out.png"
+        cmd = [
+            str(cli),
+            "--diffusion-model", str(DIFFUSION_MODEL),
+            "--vae", str(VAE),
+            "--clip_l", str(CLIP_L),
+            "--t5xxl", str(T5XXL),
+            "-p", prompt,
+            "--cfg-scale", "1.0",
+            "--sampling-method", "euler",
+            "--steps", "4",
+            "-W", str(width),
+            "-H", str(height),
+            "--seed", str(seed),
+            "--backend", "te=cpu",
+            "--offload-to-cpu",
+            "--flash-attn", "on",
+            "-o", str(out_path),
+        ]
+        if source is not None:
+            init_path = Path(tmp) / "init.png"
+            source.save(init_path, format="PNG")
+            cmd += ["-i", str(init_path), "--strength", str(strength)]
+
+        # Keeps a console window from flashing up on Windows when the app is
+        # launched as a windowed exe.
+        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        try:
+            proc = subprocess.run(
+                cmd, cwd=str(cli.parent), capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+                timeout=CLI_TIMEOUT_SECONDS, creationflags=flags,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                "Image generation took too long and was stopped. Try a shorter "
+                "description, or check that your graphics drivers are up to date."
+            )
+        if proc.returncode != 0 or not out_path.exists():
+            logging.error("sd-cli failed (exit %s): %s", proc.returncode, (proc.stderr or "")[-2000:])
+            raise RuntimeError("Couldn't generate that image. Try a different or shorter description.")
+        return out_path.read_bytes()
 
 
 def generate_image(
     prompt: str,
-    width: int = 1024,
-    height: int = 1024,
+    width: int = DEFAULT_SIZE,
+    height: int = DEFAULT_SIZE,
     init_image: bytes | None = None,
     strength: float = 0.9,
+    before_generate=None,
 ) -> bytes:
     """Generates one image from a text prompt, returned as PNG bytes.
 
@@ -162,33 +244,54 @@ def generate_image(
     like FLUX.1-dev wants would just waste time here without improving the
     result.
 
-    Holds NATIVE_INFERENCE_LOCK for the actual generation call, same as
-    every other native chat/embedding call in this app — see this module's
-    own docstring for why."""
+    Holds NATIVE_INFERENCE_LOCK for the actual generation, same as every
+    other native chat/embedding call in this app — see this module's own
+    docstring for why. On the sd-cli path the generation itself runs in a
+    separate process, so the crash that lock exists for can't happen there;
+    it's still held so an image never competes with a chat reply for the same
+    GPU memory and CPU cores at once."""
+    seed = random.randint(0, 2**31 - 1)
+    source = None
+    if init_image is not None:
+        from PIL import Image
+
+        source = Image.open(io.BytesIO(init_image)).convert("RGB")
+        width, height = source.size
+        if max(width, height) > MAX_EDIT_DIMENSION:
+            scale = MAX_EDIT_DIMENSION / max(width, height)
+            width, height = int(width * scale), int(height * scale)
+            source = source.resize((width, height))
+        # FLUX's own architecture needs both dimensions on a 16px grid —
+        # source photos essentially never land on one already.
+        width -= width % 16
+        height -= height % 16
+        if source.size != (width, height):
+            source = source.crop((0, 0, width, height))
+
+    cli = _sd_cli_path()
+    if cli is not None:
+        with rag_mod.NATIVE_INFERENCE_LOCK:
+            # Called under the lock so it can't race an in-flight chat reply.
+            # The caller uses it to drop the resident chat model: on an 8GB
+            # GPU the chat model alone takes ~4.7GB+, leaving the image
+            # process too little VRAM — measured 239s with it loaded versus
+            # ~100s without. The chat model simply reloads on the next message.
+            if before_generate is not None:
+                before_generate()
+            return _generate_with_cli(cli, prompt, seed, width, height, source, strength)
+
     sd = get_sd()
     kwargs = dict(
         prompt=prompt,
         cfg_scale=1.0,
         sample_method="euler",
         sample_steps=4,
-        seed=random.randint(0, 2**31 - 1),
+        seed=seed,
+        width=width,
+        height=height,
     )
-    if init_image is not None:
-        from PIL import Image
-
-        source = Image.open(io.BytesIO(init_image)).convert("RGB")
-        w, h = source.size
-        if max(w, h) > MAX_EDIT_DIMENSION:
-            scale = MAX_EDIT_DIMENSION / max(w, h)
-            w, h = int(w * scale), int(h * scale)
-            source = source.resize((w, h))
-        # FLUX's own architecture needs both dimensions on a 16px grid —
-        # source photos essentially never land on one already.
-        w -= w % 16
-        h -= h % 16
-        kwargs.update(init_image=source, strength=strength, width=w, height=h)
-    else:
-        kwargs.update(width=width, height=height)
+    if source is not None:
+        kwargs.update(init_image=source, strength=strength)
 
     with rag_mod.NATIVE_INFERENCE_LOCK:
         images = sd.generate_image(**kwargs)

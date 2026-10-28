@@ -2,7 +2,7 @@
 
 A private, offline AI chat assistant that runs entirely on your own computer — no internet connection, no cloud service, no account, nothing sent anywhere. It's designed to live on a USB drive (or a folder copied from one) so you can carry a full local AI setup with you between machines, but it works just as well installed directly on one computer.
 
-Built with [llama.cpp](https://github.com/ggml-org/llama.cpp) (via `llama-cpp-python`) for text and vision inference, and [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) (via `stable-diffusion-cpp-python`) for image generation and editing. GPU acceleration (NVIDIA CUDA, Apple Metal) is used automatically when available, falling back to CPU otherwise.
+Built with [llama.cpp](https://github.com/ggml-org/llama.cpp) (via `llama-cpp-python`) for text and vision inference, and [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) for image generation and editing. Chat uses GPU acceleration (NVIDIA CUDA, Apple Metal) automatically when available, falling back to CPU otherwise. Image generation runs on the GPU through the official prebuilt `sd-cli` (Vulkan) when you place it in `sd/` (see below), and on the CPU through `stable-diffusion-cpp-python` when you don't.
 
 ## Features
 
@@ -24,6 +24,7 @@ backend/    FastAPI server, RAG/document pipeline, image generation, security, e
 frontend/   Vanilla JS/HTML/CSS single-page UI
 build/      Platform build scripts that package everything into one executable
 assets/     App icon source files
+sd/         (not in this repo) prebuilt sd-cli binary for GPU image generation — see below
 ```
 
 ## Running it
@@ -60,6 +61,15 @@ This repo contains source code only. Model weights are third-party, multi-gigaby
 - **Chat, vision, and document-embedding models** are downloaded automatically by the app itself — pick a model in the sidebar's Model section (or let it fetch the embedding model on first document upload) and it downloads, verifies, and installs the file into `models/` for you. No manual steps.
 - **Image generation** (FLUX.1-schnell and its VAE/CLIP-L/T5-XXL encoder files) has no in-app downloader yet — search Hugging Face for a GGUF-quantized FLUX.1-schnell build and its accompanying `ae.safetensors`, `clip_l.safetensors`, and `t5xxl_fp8_e4m3fn.safetensors` files, and place all four in `models/` with those exact filenames (see `backend/imagegen.py`). Without them, everything except image generation/editing works normally.
 - **Voice input** downloads its [faster-whisper](https://github.com/SYSTRAN/faster-whisper) model automatically on first use, into `whisper_models/`.
+
+### GPU image generation (`sd/`, optional but strongly recommended)
+
+Without it, image generation runs on the CPU and is slow — minutes per image, and a default-size request can run for half an hour on a laptop CPU. With it, a 512×512 FLUX.1-schnell image took about a minute on an RTX 4060 (8 GB), using the same model files.
+
+1. Download the prebuilt binaries for your platform from the [stable-diffusion.cpp releases page](https://github.com/leejet/stable-diffusion.cpp/releases) — on Windows, the `sd-master-<build>-bin-win-vulkan-x64.zip` asset (about 28 MB). The Vulkan build works on NVIDIA, AMD, and Intel GPUs without a CUDA install.
+2. Extract it into an `sd/` folder next to `PocketMind.exe` (or the project root when running from source), so that `sd/sd-cli.exe` exists.
+
+The app detects the folder on its own. Images are 512×512 by default, the chat model is unloaded from GPU memory while an image is generated (it reloads on your next message), and each image runs in its own process so its memory is returned the moment it finishes. If `sd/` is missing, the app falls back to the CPU path automatically.
 
 ## License
 

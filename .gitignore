@@ -7,6 +7,9 @@ whisper_models/
 # Third-party installers (downloaded separately, see README)
 prerequisites/
 
+# Prebuilt stable-diffusion.cpp binaries for GPU image generation (downloaded separately, see README)
+sd/
+
 # Built app / PyInstaller output
 PocketMind.exe
 build/PocketMind/

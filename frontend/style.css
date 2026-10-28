@@ -1407,3 +1407,20 @@ button:disabled { opacity: 0.5; cursor: default; background: var(--bg-raised); }
 
 .danger-btn { border-color: var(--danger) !important; color: var(--danger); }
 .danger-btn:hover { background: var(--danger-tint) !important; }
+
+/* "Edit this image" button under a generated/edited picture — a small text
+   pill rather than the round icon-only .speak-btn, since the label is what
+   tells a first-time user this picture can be changed. */
+.edit-image-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.edit-image-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }

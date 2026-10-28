@@ -9,7 +9,7 @@ Built with [llama.cpp](https://github.com/ggml-org/llama.cpp) (via `llama-cpp-py
 - **Chat** with streamed replies, four pre-configured model tiers (fast/balanced/best-quality/vision), and support for adding your own `.gguf` models.
 - **Personas and custom agents** — built-in conversation styles (Coding Helper, Writing Assistant, Explain Simply, Default) plus your own custom agents, each with its own instructions and prioritized document categories.
 - **Document library (RAG)** — upload PDF, Word, Excel, or PowerPoint files and the assistant automatically retrieves relevant excerpts while answering, with automatic categorization. Scanned/image-only PDFs are read via an OCR fallback.
-- **Image generation and editing** — describe an image in plain language ("draw a lighthouse at sunset") to generate one, or attach a photo and describe a change to edit it, all on-device via FLUX.
+- **Image generation and editing** — ask for a picture in plain language ("draw a lighthouse at sunset", "show me an image of a BCD") and it's generated on-device with FLUX. Every picture has an **Edit this image** button, and a follow-up like "make the apple green" edits the last one directly; you can also attach your own photo and describe a change. Generated pictures are saved with the conversation and are still there when you reopen it.
 - **Vision** — attach a photo or screenshot and ask about it.
 - **Voice input and read-aloud** — fully offline speech-to-text and text-to-speech.
 - **Memory** — say "remember that…" and it's brought up automatically in future conversations.

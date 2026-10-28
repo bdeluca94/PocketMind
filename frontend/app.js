@@ -895,6 +895,7 @@ confirmRestoreBtn.addEventListener("click", async () => {
   // each piece of UI state individually.
   currentConvId = null;
   history = [];
+  lastImageDataUrl = null;
   chatWindow.innerHTML = "";
   loadConversations();
   loadDocuments();
@@ -1509,6 +1510,7 @@ async function clearAllConversations(conversations) {
   if (currentConvId && conversations.some((c) => c.id === currentConvId)) {
     currentConvId = null;
     history = [];
+    lastImageDataUrl = null;
     chatWindow.innerHTML = "";
   }
 }
@@ -1530,6 +1532,7 @@ async function openConversation(id, messageIndexToReveal) {
     stopSpeaking();
     currentConvId = id;
     history = data.messages || [];
+    lastImageDataUrl = null;
     chatWindow.innerHTML = "";
     history.forEach((m, i) => {
       // A user turn that carried a file attachment was saved with the
@@ -1541,6 +1544,19 @@ async function openConversation(id, messageIndexToReveal) {
       if (fileMatch) {
         const el = addMessage("user", fileMatch[1]);
         addFileAttachNote(el, `${fileMatch[2]} (${fileMatch[3]})`);
+        return;
+      }
+      // A picture saved with its message (see toStorableImage) is redrawn
+      // the way it looked live: a user's attached photo inside their bubble,
+      // an image the app made as a bare picture with its Edit button — not
+      // the "[Generated an image: ...]" note the model sees in its history.
+      if (m.image && m.role === "assistant") {
+        const el = addMessage("assistant", "");
+        appendGeneratedImage(el, m.image, m.content.replace(/^\[[^:\]]*:\s*/, "").replace(/\]$/, ""));
+        return;
+      }
+      if (m.image && m.role === "user") {
+        addMessage("user", m.content, m.image);
         return;
       }
       const el = addMessage(m.role, m.content);
@@ -1636,7 +1652,7 @@ compactBtn.addEventListener("click", async () => {
     const res = await fetch("/api/chat/compact", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: history }),
+      body: JSON.stringify({ messages: messagesForModel() }),
     });
     const data = await res.json();
     if (data.error) {
@@ -1676,6 +1692,7 @@ newChatBtn.addEventListener("click", () => {
   stopSpeaking();
   currentConvId = null;
   history = [];
+  lastImageDataUrl = null;
   chatWindow.innerHTML = "";
   compactDismissed = false;
   compactSuggestion.classList.add("hidden");
@@ -2447,6 +2464,17 @@ async function waitForEmbeddingModel() {
 // ---------------------------------------------------------------------------
 let pendingImage = null;
 
+// The most recent image this chat generated or edited, kept in memory only
+// (history stores just a text note about it) so a follow-up like "make the cat
+// black" can edit it without the user downloading and re-attaching it. Cleared
+// whenever the visible conversation changes — a reopened chat has no pixels to
+// edit, only text.
+let lastImageDataUrl = null;
+// True when pendingImage was put there by an image's "Edit this image" button
+// rather than a file the user picked, which means the next message is an edit
+// request whatever its wording.
+let pendingImageIsEditTarget = false;
+
 function showImageAttachError(text) {
   imageAttachStatus.textContent = text;
   imageAttachStatus.classList.remove("hidden");
@@ -2460,6 +2488,7 @@ function showImageAttachInfo(text) {
 
 function clearPendingImage() {
   pendingImage = null;
+  pendingImageIsEditTarget = false;
   imageAttachPreview.classList.add("hidden");
   imageAttachThumb.src = "";
   imageAttachName.textContent = "";
@@ -2536,6 +2565,73 @@ async function attachImageFile(file) {
   } catch {
     showImageAttachError(`Couldn't read "${file.name}".`);
   }
+}
+
+/** Puts a generated/edited image into the composer as the thing to change —
+ * the same preview chip a dropped photo gets, plus the edit-target flag so the
+ * next message is treated as an edit request regardless of its wording. */
+async function startImageEdit(dataUrl) {
+  imageAttachStatus.classList.add("hidden");
+  if (!activeModelIsVision) {
+    const vision = findCatalogModel("vision");
+    const result = await switchToModel(vision.filename);
+    if (!result.ok) { showImageAttachError(result.error); return; }
+  }
+  pendingImage = dataUrl;
+  pendingImageIsEditTarget = true;
+  imageAttachThumb.src = dataUrl;
+  imageAttachName.textContent = "Editing this image";
+  imageAttachPreview.classList.remove("hidden");
+  showImageAttachInfo('Describe the change, e.g. "make the cat black", then send.');
+  input.focus();
+}
+
+/** Shows a generated or edited image in an assistant bubble with an "Edit this
+ * image" button under it, and remembers it as the target for a follow-up edit. */
+function appendGeneratedImage(assistantEl, dataUrl, alt) {
+  const img = document.createElement("img");
+  img.src = dataUrl;
+  img.className = "msg-image";
+  img.alt = alt;
+  assistantEl.appendChild(img);
+  lastImageDataUrl = dataUrl;
+
+  const row = document.createElement("div");
+  row.className = "msg-actions";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "edit-image-btn";
+  btn.title = "Change something in this picture";
+  btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg><span>Edit this image</span>';
+  btn.addEventListener("click", () => startImageEdit(dataUrl));
+  row.appendChild(btn);
+  assistantEl.appendChild(row);
+}
+
+/** A compressed copy of an image to save inside the conversation file. The
+ * live picture stays a lossless PNG; the saved one is a q0.9 JPEG, roughly a
+ * fifth the size, so a chat with several pictures stays small enough to
+ * rewrite on every save, search, back up, and encrypt like any other chat. */
+function toStorableImage(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext("2d").drawImage(img, 0, 0);
+      resolve(canvas.toDataURL("image/jpeg", 0.9));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+/** `history` entries can carry an `image` (see toStorableImage) that exists
+ * only so a reopened chat can redraw it — the model and the server's
+ * summarizer only ever want role + content, so strip it from what's sent. */
+function messagesForModel() {
+  return history.map(({ role, content }) => ({ role, content }));
 }
 
 attachImageBtn.addEventListener("click", () => imageInput.click());
@@ -2876,11 +2972,22 @@ form.addEventListener("submit", async (e) => {
 
   let text = input.value.trim();
   if (!text && !pendingImage && !pendingFile) return;
+  if (!text && pendingImageIsEditTarget) {
+    showImageAttachInfo('Tell me what to change first, e.g. "make the cat black".');
+    return;
+  }
   if (!text && pendingImage) text = "Describe this image."; // a bare attachment still needs some prompt
   if (!text && pendingFile) text = "Please review this file.";
 
   const imageForThisTurn = pendingImage;
+  const imageIsEditTarget = pendingImageIsEditTarget;
   const fileForThisTurn = pendingFile;
+  // Read before this turn's own history entries are pushed: was the last
+  // thing in the chat an image the app made? Only then does bare edit wording
+  // ("make it night time") mean "edit that picture" rather than ordinary chat.
+  const lastEntry = history[history.length - 1];
+  const justMadeImage = !!lastImageDataUrl && !!lastEntry && lastEntry.role === "assistant"
+    && /^\[(Generated an image|Edited the attached image)/.test(lastEntry.content);
   addMessage("user", text, imageForThisTurn);
   if (fileForThisTurn) addFileAttachNote(chatWindow.lastElementChild, `${fileForThisTurn.filename} (${fileLineInfo(fileForThisTurn)})`);
 
@@ -2889,7 +2996,7 @@ form.addEventListener("submit", async (e) => {
   // applies to a plain typed request, the same way Image Analysis's own
   // auto-switch only fires the other direction, off an actual attachment
   // rather than the wording of a message.
-  if (!imageForThisTurn && !fileForThisTurn && IMAGE_GEN_REQUEST_RE.test(text)) {
+  if (!imageForThisTurn && !fileForThisTurn && looksLikeImageRequest(text)) {
     history.push({ role: "user", content: text });
     input.value = "";
     retireRoutingNotes();
@@ -2903,13 +3010,27 @@ form.addEventListener("submit", async (e) => {
   // FLUX edits the actual pixels — not a text-only description of a
   // similar-sounding image the way IMAGE_GEN_REQUEST_RE's from-scratch
   // path works.
-  if (imageForThisTurn && IMAGE_EDIT_REQUEST_RE.test(text)) {
-    history.push({ role: "user", content: text });
+  if (imageForThisTurn && (imageIsEditTarget || IMAGE_EDIT_REQUEST_RE.test(text))) {
+    history.push({ role: "user", content: text, image: await toStorableImage(imageForThisTurn) });
     input.value = "";
     clearPendingImage();
     clearPendingFile();
     retireRoutingNotes();
     await editImageFromPrompt(text, imageForThisTurn);
+    input.focus();
+    return;
+  }
+
+  // Follow-up edit of the image the app just made, no attachment needed. Sits
+  // after the new-image check above, so "draw another cat" still generates a
+  // fresh picture instead of editing the old one.
+  if (!imageForThisTurn && !fileForThisTurn && justMadeImage
+      && !IMAGE_FOLLOWUP_QUESTION_RE.test(text)
+      && (IMAGE_EDIT_REQUEST_RE.test(text) || IMAGE_FOLLOWUP_EDIT_RE.test(text))) {
+    history.push({ role: "user", content: text });
+    input.value = "";
+    retireRoutingNotes();
+    await editImageFromPrompt(text, lastImageDataUrl);
     input.focus();
     return;
   }
@@ -2926,7 +3047,10 @@ form.addEventListener("submit", async (e) => {
     const lang = LANG_BY_EXT[fileExt(fileForThisTurn.filename)] || "";
     content = `${text}\n\n[Attached file: ${fileForThisTurn.filename} (${fileLineInfo(fileForThisTurn)})]\n\`\`\`${lang}\n${fileForThisTurn.content}\n\`\`\``;
   }
-  history.push({ role: "user", content });
+  history.push({
+    role: "user", content,
+    ...(imageForThisTurn ? { image: await toStorableImage(imageForThisTurn) } : {}),
+  });
 
   input.value = "";
   clearPendingImage();
@@ -3006,7 +3130,7 @@ async function sendToModel({ autoRoute, image }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        messages: history,
+        messages: messagesForModel(),
         persona: currentPersona,
         use_documents: true,
         auto_route: autoRoute,
@@ -3085,6 +3209,18 @@ async function sendToModel({ autoRoute, image }) {
       currentAbortController = null;
       setStreamingUi(false);
       maybeSuggestCompact();
+      return;
+    }
+
+    // See IMAGE_REFUSAL_RE: an image request that slipped past the up-front
+    // check and got a "text-based AI" refusal is redone as an image instead.
+    const askedFor = [...history].reverse().find((m) => m.role === "user");
+    if (!image && askedFor && !FILE_ATTACHMENT_RE.test(askedFor.content)
+        && IMAGE_MENTION_RE.test(askedFor.content) && !IMAGE_TECHNICAL_RE.test(askedFor.content)
+        && IMAGE_REFUSAL_RE.test(full)) {
+      assistantEl.remove();
+      currentAbortController = null;
+      await generateImageFromPrompt(askedFor.content);
       return;
     }
 
@@ -3197,12 +3333,9 @@ async function generateImageFromPrompt(prompt) {
       addErrorNote(assistantEl, message, { httpStatus: res.status });
       history.push({ role: "assistant", content: `[Image generation failed: ${message}]` });
     } else {
-      const img = document.createElement("img");
-      img.src = `data:image/png;base64,${data.image_base64}`;
-      img.className = "msg-image";
-      img.alt = prompt;
-      assistantEl.appendChild(img);
-      history.push({ role: "assistant", content: `[Generated an image: ${prompt}]` });
+      const shown = `data:image/png;base64,${data.image_base64}`;
+      appendGeneratedImage(assistantEl, shown, prompt);
+      history.push({ role: "assistant", content: `[Generated an image: ${prompt}]`, image: await toStorableImage(shown) });
       saveCurrentConversation();
     }
   } catch {
@@ -3238,6 +3371,14 @@ async function editImageFromPrompt(request, imageDataUrl) {
   const base64 = imageDataUrl.slice(imageDataUrl.indexOf(",") + 1);
 
   try {
+    // Reading the picture needs the vision model. A photo attached by hand
+    // already switched to it, but an edit of an image the app itself just made
+    // can start from any model.
+    if (!activeModelIsVision) {
+      const vision = findCatalogModel("vision");
+      const result = await switchToModel(vision.filename);
+      if (!result.ok) throw new Error(result.error);
+    }
     const describeRes = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3289,12 +3430,9 @@ async function editImageFromPrompt(request, imageDataUrl) {
       addErrorNote(assistantEl, message, { httpStatus: editRes.status });
       history.push({ role: "assistant", content: `[Image edit failed: ${message}]` });
     } else {
-      const img = document.createElement("img");
-      img.src = `data:image/png;base64,${editData.image_base64}`;
-      img.className = "msg-image";
-      img.alt = request;
-      assistantEl.appendChild(img);
-      history.push({ role: "assistant", content: `[Edited the attached image: ${request}]` });
+      const shown = `data:image/png;base64,${editData.image_base64}`;
+      appendGeneratedImage(assistantEl, shown, request);
+      history.push({ role: "assistant", content: `[Edited the attached image: ${request}]`, image: await toStorableImage(shown) });
       saveCurrentConversation();
     }
   } catch (err) {
@@ -3586,7 +3724,38 @@ const PPTX_REQUEST_RE = /\bpower\s*point\b|\bslide(?:s|show)?\b|\bdeck\b|\bprese
 // "generate" by itself catches far too much ("draw a conclusion",
 // "generate a report") to trigger on its own the way the export-format
 // regexes above safely can.
-const IMAGE_GEN_REQUEST_RE = /\b(?:generate|create|draw|make|produce|render)\b(?:\s+\w+){0,3}\s+\b(?:image|picture|photo|illustration|drawing|artwork|painting|logo|icon|graphic)\b/i;
+const IMAGE_GEN_REQUEST_RE = /\b(?:generate|create|draw|make|produce|render|paint|sketch|illustrate|design)\b(?:\s+\w+){0,3}\s+\b(?:images?|pictures?|pics?|photos?|photographs?|illustrations?|drawings?|sketch(?:es)?|artwork|paintings?|logos?|icons?|graphics?)\b/i;
+
+// Everyday ways of asking for a picture that carry no "create/draw" verb at
+// all — "show me an image of...", "can I see a picture of...", "I need a photo
+// of...", "an image of a BCD, please". The softer verbs ("show", "get", "see")
+// are only trusted with "<noun> of" right after, since on their own they're
+// ordinary chat ("show me the picture on page 3").
+const IMAGE_NOUN = "(?:images?|pictures?|pics?|photos?|photographs?|illustrations?|drawings?|sketch(?:es)?|artwork|paintings?)";
+const IMAGE_SOFT_REQUEST_RE = new RegExp(
+  `\\b(?:show|give|get|send|find|see|need|want|like|have|looking\\s+for)\\b(?:\\s+\\w+){0,5}\\s+(?:an?\\s+|some\\s+)?${IMAGE_NOUN}\\s+of\\b` +
+  `|^\\s*(?:an?\\s+|some\\s+)?${IMAGE_NOUN}\\s+of\\b`, "i");
+// "draw me a cat" / "paint a sunset" — no image noun, the verb is enough, apart
+// from the idioms ("draw a conclusion") that make a bare "draw" risky.
+const IMAGE_DRAW_REQUEST_RE = /\b(?:draw|paint|sketch|illustrate)\s+(?:me\s+|us\s+)?(?:an?|the|some)\s+(?!conclusions?\b|comparisons?\b|lines?\b|parallels?\b|distinctions?\b|inferences?\b|analog(?:y|ies)\b|attention\b|blank\b|board\b)\w+/i;
+// Words that mean "image" in a software sense — a Docker image, an image
+// upload component — where the user wants code or an explanation, not a picture.
+const IMAGE_TECHNICAL_RE = /\b(?:docker(?:file)?|kubernetes|container|disk image|iso|vm image|virtual machine|machine image|base image|html|css|svg|canvas|image\s+(?:processing|classification|recognition|segmentation|file|format|tag|upload|component|library|dataset|compression|size|resolution|quality|url|src))\b|<img\b/i;
+
+const IMAGE_IDIOM_RE = /\b(?:big|bigger|whole|full|overall|clear|complete)\s+picture\b|\bpicture\s+of\s+health\b/i;
+
+function looksLikeImageRequest(text) {
+  if (IMAGE_TECHNICAL_RE.test(text) || IMAGE_IDIOM_RE.test(text)) return false;
+  return IMAGE_GEN_REQUEST_RE.test(text) || IMAGE_SOFT_REQUEST_RE.test(text) || IMAGE_DRAW_REQUEST_RE.test(text);
+}
+
+// Safety net for a request the patterns above still miss: the chat model
+// answers it with "as a text-based AI I can't show images". That reply is
+// wrong for this app, which can make one, so when the user's message does
+// mention a picture and the reply is such a refusal, the reply is dropped and
+// the image is generated instead (see sendToModel).
+const IMAGE_MENTION_RE = /\b(?:images?|pictures?|pics?|photos?|photographs?|illustrations?|drawings?|sketch(?:es)?|artwork|paintings?|logos?)\b/i;
+const IMAGE_REFUSAL_RE = /\b(?:can(?:'|’)?t|cannot|can not|unable to|not able to|don(?:'|’)?t have (?:the )?(?:ability|capability)|text-based)\b[^.!?\n]{0,100}\b(?:images?|pictures?|photos?|draw|drawing|display|generate|create|show|visuals?|illustrations?)\b/i;
 
 // Only ever checked when an image is actually attached (see the form
 // handler), which is most of why this can stay broader than
@@ -3597,6 +3766,14 @@ const IMAGE_GEN_REQUEST_RE = /\b(?:generate|create|draw|make|produce|render)\b(?
 // "this"/"it" right after, since those two are common in ordinary
 // non-edit questions about a photo ("what does this make you think of").
 const IMAGE_EDIT_REQUEST_RE = /\b(?:change|alter|edit|modify|transform|add|remove|replace|recolor|repaint|redraw|convert)\b|\b(?:make|turn)\s+(?:this|it)\b/i;
+
+// For a follow-up typed right after the app made an image (no attachment, so
+// the previous turn is the context that says what "the apple" means), looser
+// wording is safe to treat as an edit — "make the apple green" has no
+// "this"/"it" for the pattern above to catch. A message that opens like a
+// question about the picture is still ordinary chat.
+const IMAGE_FOLLOWUP_EDIT_RE = /\b(?:make|turn|give|put|paint|colou?r|swap|fix|adjust|brighten|darken|lighten|shrink|enlarge|move)\b/i;
+const IMAGE_FOLLOWUP_QUESTION_RE = /^\s*(?:what|why|how|who|when|where|which|describe|explain|tell me|is|are|does|do)\b/i;
 
 /** Finds the user message that prompted history[index] — walks backward
  * rather than just taking history's last user turn, since replaying a
